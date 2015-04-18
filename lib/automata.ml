@@ -254,14 +254,42 @@ let compare_state (idx1, cat1, desc1, _, h1) (idx2, cat2, desc2, _, h2) =
   if c <> 0 then c else
   compare desc1 desc2
 
-module States =
-  Hashtbl.Make
-    (struct
-       type t = state
-       let equal = equal_state
-       let hash (_, _, _, _, h) = h
-     end)
+module States = struct
+  module H = struct
+    type t = state
+    let equal = equal_state
+    let hash (_, _, _, _, h) = h
+  end
 
+  include Hashtbl.Make(H)
+
+  type ('a, 'b) h_bucketlist =
+    | Empty
+    | Cons of 'a * 'b * ('a, 'b) h_bucketlist
+
+  type ('a, 'b) h_t = {
+    mutable size: int;
+    mutable data: ('a, 'b) h_bucketlist array;
+    mutable seed: int;
+    initial_size: int;
+  }
+
+  external h_conv : ('a, 'b) Hashtbl.t -> ('a, 'b) h_t = "%identity"
+  external h_make : ('a, 'b) h_t -> ('a, 'b) Hashtbl.t = "%identity"
+
+  external to_hash : 'a t -> (key, 'a) Hashtbl.t = "%identity"
+  external of_hash : (key, 'a) Hashtbl.t -> 'a t = "%identity"
+
+  let find_option h key =
+    let hc = h_conv (to_hash h) in
+    let rec loop = function
+      | Empty -> None
+      | Cons (k,v,next) ->
+        if H.equal k key then Some v else loop next
+    in
+    let pos = (H.hash key) mod (Array.length hc.data) in
+    loop (Array.unsafe_get hc.data pos)
+end
 (**** Find a free index ****)
 
 type working_area = bool array ref

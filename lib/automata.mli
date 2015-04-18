@@ -79,7 +79,10 @@ type state =
 val dummy_state : state
 val mk_state : idx -> category -> e list -> state
 val create_state : category -> expr -> state
-module States : Hashtbl.S with type key = state
+module States : sig
+  include Hashtbl.S with type key = state
+  val find_option : 'a t -> state -> 'a option
+end
 
 (****)
 

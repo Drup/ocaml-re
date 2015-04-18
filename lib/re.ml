@@ -145,12 +145,12 @@ let mk_state ncol ((idx, _, _, _, _) as desc) =
     desc = desc }
 
 let find_state re desc =
-  try
-    Automata.States.find re.states desc
-  with Not_found ->
-    let st = mk_state re.ncol desc in
-    Automata.States.add re.states desc st;
-    st
+  match Automata.States.find_option re.states desc with
+    | Some x -> x
+    | None ->
+      let st = mk_state re.ncol desc in
+      Automata.States.add re.states desc st;
+      st
 
 (**** Match with marks ****)
 
@@ -235,24 +235,28 @@ let rec loop_no_mark info s pos last st =
   else
     st
 
+let rec assq x = function
+    [] -> None
+  | (a,b)::l -> if a == x then Some b else assq x l
+
 let final info st cat =
-  try
-    List.assq cat st.final
-  with Not_found ->
-    let (idx, _, _, _, _) as st' = delta info cat (-1) st in
-    let res = (idx, Automata.status st') in
-    st.final <- (cat, res) :: st.final;
-    res
+  match assq cat st.final with
+    | Some x -> x
+    | None ->
+      let (idx, _, _, _, _) as st' = delta info cat (-1) st in
+      let res = (idx, Automata.status st') in
+      st.final <- (cat, res) :: st.final;
+      res
 
 let find_initial_state re cat =
-  try
-    List.assq cat re.initial_states
-  with Not_found ->
-    let st =
-      find_state re (Automata.create_state cat re.initial)
-    in
-    re.initial_states <- (cat, st) :: re.initial_states;
-    st
+  match assq cat re.initial_states with
+    | Some x -> x
+    | None  ->
+      let st =
+        find_state re (Automata.create_state cat re.initial)
+      in
+      re.initial_states <- (cat, st) :: re.initial_states;
+      st
 
 let dummy_substrings = `Match ("", [], [||], 0)
 
@@ -371,30 +375,36 @@ let rec cset_hash_rec l =
   | (i, j)::r -> i + 13 * j + 257 * cset_hash_rec r
 let cset_hash l = (cset_hash_rec l) land 0x3FFFFFFF
 
-module CSetMap =
-  Map.Make
-  (struct
-    type t = int * (int * int) list
-    let compare (i, u) (j, v) =
-      let c = compare i j in if c <> 0 then c else compare u v
-   end)
+module CSetMap = struct
+  type key = int * (int * int) list
+  type 'a t = (key * 'a) list
+  let compare (i, u) (j, v) =
+    let c = compare i j in if c <> 0 then c else compare u v
+  let eq x y = compare x y = 0
+  let rec find x = function
+      [] -> None
+    | (a,b)::l -> if eq a x then Some b else assq x l
+  let add k x s = (k,x) :: s
+  let empty = []
+end
+
 
 let trans_set cache cm s =
   match s with
-    [i, j] when i = j ->
+      [i, j] when i = j ->
       csingle (Bytes.get cm i)
-  | _ ->
+    | _ ->
       let v = (cset_hash_rec s, s) in
-      try
-        CSetMap.find v !cache
-      with Not_found ->
-        let l =
-          List.fold_right
-            (fun (i, j) l -> Cset.union (cseq (Bytes.get cm i) (Bytes.get cm j)) l)
-            s Cset.empty
-        in
-        cache := CSetMap.add v l !cache;
-        l
+      match CSetMap.find v !cache with
+        | Some x -> x
+        | None ->
+          let l =
+            List.fold_right
+              (fun (i, j) l -> Cset.union (cseq (Bytes.get cm i) (Bytes.get cm j)) l)
+              s Cset.empty
+          in
+          cache := CSetMap.add v l !cache;
+          l
 
 (****)
 
